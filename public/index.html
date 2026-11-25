@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar | Escala dos Bombeiros Voluntários de Pomerode</title>
+  <link rel="icon" href="img/logo.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <a class="pular" href="#conteudo">Ir para o conteúdo</a>
+  <div class="entrada">
+    <div class="faixa">
+      <img class="logo" src="img/logo-branco.png" alt="Brasão dos Bombeiros Voluntários de Pomerode">
+      <div>
+        <h1>Escala dos Bombeiros Voluntários</h1>
+        <p>Pomerode – SC. Veja onde falta gente, marque seus plantões e repita o dia da semana para o mês todo.</p>
+      </div>
+    </div>
+    <main id="conteudo">
+      <div class="caixa">
+        <div class="abas" role="tablist">
+          <button role="tab" id="aba-entrar" aria-selected="true">Entrar</button>
+          <button role="tab" id="aba-cadastrar" aria-selected="false">Criar conta</button>
+        </div>
+
+        <form id="f-entrar">
+          <label>Usuário ou e-mail <input type="text" name="login" autocomplete="username" required></label>
+          <label>Senha <input type="password" name="senha" autocomplete="current-password" required></label>
+          <p class="msg" role="alert"></p>
+          <button class="btn" type="submit">Entrar</button>
+          <button type="button" class="link" id="esqueci">Esqueci minha senha</button>
+          <p class="aviso" id="aviso-senha" hidden>Peça ao chefe de equipe ou ao administrador para redefinir sua senha. Com a senha nova, é só entrar aqui.</p>
+        </form>
+
+        <form id="f-cadastrar" hidden>
+          <label>Nome completo <input type="text" name="nome_completo" autocomplete="name" required></label>
+          <label>Usuário <input type="text" name="usuario" autocomplete="username" required></label>
+          <label>E-mail <input type="email" name="email" autocomplete="email" required></label>
+          <label>Telefone <input type="tel" name="telefone" id="telefone" autocomplete="tel" inputmode="tel" maxlength="15" placeholder="(47) 99999-9999" required></label>
+          <label>Senha <span class="dica">Mínimo de 6 caracteres</span>
+            <input type="password" name="senha" autocomplete="new-password" minlength="6" required></label>
+          <fieldset>
+            <legend>Carteira de motorista <span class="dica">(deixe vazio se não tem)</span></legend>
+            <div class="opcoes">
+              <label><input type="checkbox" name="cnh" value="A"><span>A</span></label>
+              <label><input type="checkbox" name="cnh" value="B"><span>B</span></label>
+              <label><input type="checkbox" name="cnh" value="C"><span>C</span></label>
+              <label><input type="checkbox" name="cnh" value="D"><span>D</span></label>
+              <label><input type="checkbox" name="cnh" value="E"><span>E</span></label>
+            </div>
+          </fieldset>
+          <label class="aceite"><input type="checkbox" name="mostrar_telefone"> <span>Autorizo mostrar meu telefone aos colegas no painel do dia. O chefe de equipe sempre vê.</span></label>
+          <p class="msg" role="alert"></p>
+          <button class="btn" type="submit">Criar conta</button>
+        </form>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const fE = $('#f-entrar'), fC = $('#f-cadastrar');
+
+    function aba(entrar) {
+      fE.hidden = !entrar; fC.hidden = entrar;
+      $('#aba-entrar').setAttribute('aria-selected', entrar);
+      $('#aba-cadastrar').setAttribute('aria-selected', !entrar);
+    }
+    $('#aba-entrar').onclick = () => aba(true);
+    $('#aba-cadastrar').onclick = () => aba(false);
+    // Telefone: só números, com máscara (47) 99999-9999
+    $('#telefone').addEventListener('input', (e) => {
+      const d = e.target.value.replace(/\D/g, '').slice(0, 11);
+      e.target.value = d.length <= 2 ? d : d.length <= 6 ? `(${d.slice(0, 2)}) ${d.slice(2)}`
+        : d.length <= 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+    });
+    $('#esqueci').onclick = () => { $('#aviso-senha').hidden = !$('#aviso-senha').hidden; };
+
+    async function enviar(form, url, corpo) {
+      const msg = form.querySelector('.msg'); msg.textContent = '';
+      const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+      try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.erro || 'Não foi possível concluir.');
+        location.href = 'app.html';
+      } catch (e) { msg.textContent = e.message; btn.disabled = false; }
+    }
+
+    fE.onsubmit = (e) => { e.preventDefault(); enviar(fE, '/api/login', Object.fromEntries(new FormData(fE))); };
+    fC.onsubmit = (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(fC));
+      d.cnh = [...fC.querySelectorAll('input[name=cnh]:checked')].map((i) => i.value);
+      d.mostrar_telefone = fC.querySelector('input[name=mostrar_telefone]').checked;
+      enviar(fC, '/api/cadastro', d);
+    };
+
+    fetch('/api/me').then((r) => { if (r.ok) location.href = 'app.html'; });
+  </script>
+</body>
+</html>

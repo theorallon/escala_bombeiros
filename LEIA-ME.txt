@@ -1,0 +1,13 @@
+COMO RODAR
+1) XAMPP: inicie o MySQL (e o Apache, se quiser o phpMyAdmin).
+2) Banco NOVO: cole banco.txt na aba SQL do phpMyAdmin.
+   Banco que você JÁ criou na v1: cole só migracao.txt (uma vez).
+3) Copie .env.example para .env (se ainda não tem) e troque o JWT_SECRET.
+4) npm install
+5) npm start  ->  http://localhost:3000
+   (depois de atualizar os arquivos, use Ctrl+F5 no navegador para carregar o visual novo)
+
+PERFIS
+- O primeiro usuário cadastrado vira administrador.
+- Para criar o chefe de equipe: cadastre a conta pela tela normal e rode no phpMyAdmin:
+  UPDATE usuarios SET perfil = 'chefe' WHERE usuario = 'nome_do_chefe';

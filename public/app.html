@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Escala | Bombeiros Voluntários de Pomerode</title>
+  <link rel="icon" href="img/logo.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <a class="pular" href="#conteudo">Ir para o conteúdo</a>
+  <header class="topo">
+    <a class="marca" href="app.html">
+      <img src="img/logo.png" alt="Brasão dos Bombeiros Voluntários de Pomerode">
+      <div><h1>Escala dos Bombeiros Voluntários</h1><small>Pomerode – SC</small></div>
+    </a>
+    <nav class="quem" aria-label="Conta">
+      <span id="quem"></span>
+      <a class="btn sec" id="lnk-gestao" href="gestao.html" hidden>Gestão <span class="badge" id="badge" hidden></span></a>
+      <button class="btn sec" id="sair">Sair</button>
+    </nav>
+  </header>
+
+  <main class="painel" id="conteudo">
+    <section aria-labelledby="titulo-mes">
+      <div class="mes">
+        <button id="ant" aria-label="Mês anterior">&#8592;</button>
+        <h2 id="titulo-mes" aria-live="polite"></h2>
+        <button id="prox" aria-label="Próximo mês">&#8594;</button>
+      </div>
+      <div class="semana" aria-hidden="true"><span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span></div>
+      <div class="grade" id="grade"></div>
+
+      <div class="legenda">
+        <p><b>Como ler o mapa:</b> cada dia tem três faixas, M (manhã), T (tarde) e N (noite), com o número de pessoas marcadas. Quanto mais escura a faixa, mais perto da meta de <span id="meta-txt">6</span> pessoas por turno.</p>
+        <ul aria-label="Cores do mapa">
+          <li><i class="c0"></i>Ninguém</li>
+          <li><i class="c1"></i>Até 25% da meta</li>
+          <li><i class="c2"></i>Até 50%</li>
+          <li><i class="c3"></i>Até 75%</li>
+          <li><i class="c4"></i>Mais de 75%</li>
+        </ul>
+        <p>O símbolo ✓ e o contorno duplo indicam os turnos em que você está marcado. Dias tracejados ainda não estão liberados para marcação (só até <span id="max-txt">30</span> dias à frente).</p>
+      </div>
+    </section>
+
+    <aside class="lateral" aria-label="Detalhes e marcação">
+      <div class="cartao" id="dia-det" aria-live="polite"><p class="vazia">Selecione um dia no mapa para ver quem está escalado e marcar seu turno.</p></div>
+
+      <div class="cartao">
+        <h3>Marcar todo o mês</h3>
+        <p class="dica" style="margin:0">Escolha um dia da semana e os turnos. Marcamos as datas futuras de <span id="mes-rec"></span>, até <span id="limite-rec"></span>.</p>
+        <label for="r-dia">Dia da semana
+          <select id="r-dia">
+            <option value="1">Segunda-feira</option><option value="2">Terça-feira</option><option value="3">Quarta-feira</option>
+            <option value="4">Quinta-feira</option><option value="5">Sexta-feira</option><option value="6">Sábado</option><option value="0">Domingo</option>
+          </select>
+        </label>
+        <fieldset>
+          <legend>Turnos <span class="dica">(não vale escolher turnos seguidos)</span></legend>
+          <div class="opcoes" id="r-turnos">
+            <label><input type="checkbox" value="MANHA"><span>Manhã</span></label>
+            <label><input type="checkbox" value="TARDE"><span>Tarde</span></label>
+            <label><input type="checkbox" value="NOITE"><span>Noite</span></label>
+          </div>
+        </fieldset>
+        <p class="msg" id="r-msg" role="status"></p>
+        <button class="btn" id="r-ok">Marcar o mês</button>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const TURNOS = [
+      { id: 'MANHA', nome: 'Manhã', hor: '07h às 13h', ab: 'M' },
+      { id: 'TARDE', nome: 'Tarde', hor: '13h às 19h', ab: 'T' },
+      { id: 'NOITE', nome: 'Noite', hor: '19h às 07h', ab: 'N' },
+    ];
+    const HORA = { MANHA: 7, TARDE: 13, NOITE: 19 };
+    const $ = (s) => document.querySelector(s);
+    const pad = (n) => String(n).padStart(2, '0');
+    const key = (d, t) => `${d}|${t}`;
+    const DIA_MS = 24 * 3600 * 1000;
+
+    const hoje = new Date();
+    const st = { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1, meta: 6, aprovH: 24, maxDias: 30, mesInicial: '2026-11', mesMax: '9999-12',
+      cont: {}, minhas: new Set(), slots: new Set(), pendentes: new Set(), sel: null, gestor: false };
+
+    function el(tag, props = {}, ...filhos) {
+      const e = Object.assign(document.createElement(tag), props);
+      filhos.forEach((f) => e.append(f));
+      return e;
+    }
+    async function api(url, opts) {
+      const r = await fetch(url, opts);
+      if (r.status === 401) { location.href = 'index.html'; throw new Error('Sessão expirada'); }
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erro || 'Erro inesperado.');
+      return d;
+    }
+    const mesStr = () => `${st.ano}-${pad(st.mes)}`;
+    const inicioTurno = (d, t) => new Date(`${d}T${pad(HORA[t])}:00:00-03:00`);
+    const naoLiberado = (d, t) => inicioTurno(d, t) - new Date() > st.maxDias * DIA_MS;
+    const nivel = (n) => (n === 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((n / st.meta) * 4))));
+    const fmtTel = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : d);
+    const IDX = { MANHA: 0, TARDE: 1, NOITE: 2 };
+    const slot = (d, t) => Math.floor(Date.parse(`${d}T00:00:00Z`) / 86400000) * 3 + IDX[t];
+    const dm = (dt) => `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}`;
+
+    async function carregarMapa() {
+      const d = await api(`/api/mapa?mes=${mesStr()}`);
+      st.cont = {}; d.contagem.forEach((c) => (st.cont[key(c.data, c.turno)] = c.total));
+      st.minhas = new Set(d.minhas.map((m) => key(m.data, m.turno)));
+      st.pendentes = new Set(d.pendentes.map((m) => key(m.data, m.turno)));
+      st.slots = new Set(d.minhas.map((m) => slot(m.data, m.turno)));
+      desenharMapa();
+      if (st.sel) desenharDia();
+    }
+
+    function desenharMapa() {
+      const nomeMes = new Date(st.ano, st.mes - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+      $('#titulo-mes').textContent = nomeMes;
+      $('#mes-rec').textContent = nomeMes;
+      $('#ant').disabled = mesStr() <= st.mesInicial;
+      $('#prox').disabled = mesStr() >= st.mesMax;
+      const grade = $('#grade'); grade.replaceChildren();
+      const primeiro = new Date(st.ano, st.mes - 1, 1).getDay();
+      const total = new Date(st.ano, st.mes, 0).getDate();
+      const hojeStr = `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}-${pad(hoje.getDate())}`;
+      for (let i = 0; i < primeiro; i++) grade.append(el('div', { className: 'dia vazio', ariaHidden: 'true' }));
+      for (let d = 1; d <= total; d++) {
+        const data = `${mesStr()}-${pad(d)}`;
+        const fechado = TURNOS.every((t) => naoLiberado(data, t.id));
+        const b = el('button', { className: 'dia' + (data === hojeStr ? ' hoje' : '') + (data < hojeStr ? ' passado' : '') + (fechado ? ' fechado' : ''), type: 'button' });
+        b.setAttribute('aria-pressed', st.sel === data);
+        const resumo = TURNOS.map((t) => {
+          const n = st.cont[key(data, t.id)] || 0;
+          return `${t.nome.toLowerCase()} ${n}${st.minhas.has(key(data, t.id)) ? ' (você)' : ''}`;
+        }).join(', ');
+        b.setAttribute('aria-label', `Dia ${d}${data === hojeStr ? ', hoje' : ''}: ${resumo}.${fechado ? ' Marcação ainda não liberada.' : ''}`);
+        b.append(el('span', { className: 'n', textContent: d }));
+        TURNOS.forEach((t) => {
+          const n = st.cont[key(data, t.id)] || 0;
+          const meu = st.minhas.has(key(data, t.id));
+          b.append(el('div', { className: `t c${nivel(n)}${meu ? ' meu' : ''}`, ariaHidden: 'true' },
+            el('span', { textContent: t.ab + (meu ? ' ✓' : '') }), el('span', { textContent: n })));
+        });
+        b.onclick = () => { st.sel = data; desenharMapa(); desenharDia(true); };
+        grade.append(b);
+      }
+    }
+
+    async function desenharDia(rolar) {
+      const box = $('#dia-det');
+      const data = st.sel;
+      const pessoas = await api(`/api/dia?data=${data}`);
+      const [a, m, d] = data.split('-').map(Number);
+      const titulo = new Date(a, m - 1, d).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+      box.replaceChildren(el('h3', { textContent: titulo }));
+      TURNOS.forEach((t) => {
+        const lista = pessoas.filter((p) => p.turno === t.id);
+        const meu = st.minhas.has(key(data, t.id));
+        const iniciado = inicioTurno(data, t.id) <= new Date();
+        const ul = el('ul');
+        lista.forEach((p) => {
+          const li = el('li', { textContent: p.nome_completo });
+          if (p.cnh) li.append(el('span', { className: 'cnh', textContent: `CNH ${p.cnh}` }));
+          if (p.telefone) li.append(el('span', { className: 'cnh', textContent: fmtTel(p.telefone) }));
+          ul.append(li);
+        });
+        const sec = el('div', { className: 'turno' },
+          el('div', { className: 'cab' }, el('b', { textContent: t.nome }), el('span', { textContent: `${t.hor} · ${lista.length} de ${st.meta}` })),
+          lista.length ? ul : el('p', { className: 'vazia', textContent: 'Ninguém marcado ainda.' }));
+        if (!iniciado && !meu && naoLiberado(data, t.id)) {
+          sec.append(el('p', { className: 'vazia', textContent: `Marcação liberada só até ${st.maxDias} dias antes do turno.` }));
+        } else if (!iniciado && !meu && (st.slots.has(slot(data, t.id) - 1) || st.slots.has(slot(data, t.id) + 1))) {
+          sec.append(el('p', { className: 'vazia', textContent: 'Você já está em um turno vizinho. Não é permitido marcar turnos seguidos.' }));
+        } else if (!iniciado) {
+          const pendente = st.pendentes.has(key(data, t.id));
+          const pedir = meu && !st.gestor && (inicioTurno(data, t.id) - new Date()) < st.aprovH * 3600 * 1000;
+          const rotulo = !meu ? `Marcar ${t.nome.toLowerCase()}` : pendente ? 'Pedido enviado ao chefe' : pedir ? 'Pedir exclusão ao chefe' : `Desmarcar ${t.nome.toLowerCase()}`;
+          const btn = el('button', { className: meu ? 'btn sec' : 'btn', textContent: rotulo, type: 'button', disabled: pendente });
+          btn.onclick = () => alternar(data, t.id, meu, pedir, btn);
+          sec.append(btn);
+        }
+        sec.append(el('p', { className: 'msg', role: 'status' }));
+        box.append(sec);
+      });
+      if (rolar && window.innerWidth <= 860) {
+        const reduzir = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        box.scrollIntoView({ behavior: reduzir ? 'auto' : 'smooth', block: 'start' });
+      }
+    }
+
+    async function alternar(data, turno, meu, pedir, btn) {
+      const msg = btn.parentElement.querySelector('.msg'); msg.textContent = ''; btn.disabled = true;
+      const json = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data, turno }) };
+      try {
+        if (pedir) await api('/api/pedidos', json);
+        else if (meu) await api(`/api/marcacoes?data=${data}&turno=${turno}`, { method: 'DELETE' });
+        else await api('/api/marcacoes', json);
+        await carregarMapa();
+      } catch (e) { msg.textContent = e.message; btn.disabled = false; }
+    }
+
+    $('#r-ok').onclick = async () => {
+      const msg = $('#r-msg'); msg.className = 'msg'; msg.textContent = '';
+      const turnos = [...document.querySelectorAll('#r-turnos input:checked')].map((i) => i.value);
+      try {
+        const r = await api('/api/marcacoes/recorrente', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mes: mesStr(), dia_semana: $('#r-dia').value, turnos }),
+        });
+        msg.className = 'msg ok';
+        msg.textContent = `${r.criadas} turno(s) marcado(s)` + (r.ja_existiam ? `, ${r.ja_existiam} já estavam marcados` : '')
+          + (r.fora_do_limite ? `, ${r.fora_do_limite} ainda não liberados` : '')
+          + (r.por_turno_seguido ? `, ${r.por_turno_seguido} ignorados por ficarem colados a outro turno seu` : '') + '.';
+        await carregarMapa();
+      } catch (e) { msg.textContent = e.message; }
+    };
+
+    function mudarMes(delta) {
+      if (delta < 0 && mesStr() <= st.mesInicial) return;
+      if (delta > 0 && mesStr() >= st.mesMax) return;
+      st.mes += delta;
+      if (st.mes < 1) { st.mes = 12; st.ano--; } else if (st.mes > 12) { st.mes = 1; st.ano++; }
+      st.sel = null;
+      $('#dia-det').replaceChildren(el('p', { className: 'vazia', textContent: 'Selecione um dia no mapa para ver quem está escalado e marcar seu turno.' }));
+      carregarMapa();
+    }
+    $('#ant').onclick = () => mudarMes(-1);
+    $('#prox').onclick = () => mudarMes(1);
+    $('#sair').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = 'index.html'; };
+
+    (async () => {
+      const me = await api('/api/me');
+      st.meta = me.meta; st.aprovH = me.aprovacao_h; st.mesInicial = me.mes_inicial; st.maxDias = me.max_dias;
+      const lim = new Date(Date.now() + st.maxDias * DIA_MS);
+      st.mesMax = `${lim.getFullYear()}-${pad(lim.getMonth() + 1)}`;
+      $('#meta-txt').textContent = st.meta; $('#max-txt').textContent = st.maxDias; $('#limite-rec').textContent = dm(lim);
+      st.gestor = me.perfil === 'admin' || me.perfil === 'chefe';
+      const papel = { admin: ' (administrador)', chefe: ' (chefe de equipe)', bombeiro: '' }[me.perfil];
+      $('#quem').textContent = me.nome_completo + papel;
+      if (st.gestor) {
+        $('#lnk-gestao').hidden = false;
+        if (me.pedidos_pendentes) { $('#badge').textContent = me.pedidos_pendentes; $('#badge').hidden = false; }
+      }
+      carregarMapa();
+    })();
+  </script>
+</body>
+</html>

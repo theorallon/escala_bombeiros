@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gestão | Escala dos Bombeiros Voluntários</title>
+  <link rel="icon" href="img/logo.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <a class="pular" href="#conteudo">Ir para o conteúdo</a>
+  <header class="topo">
+    <a class="marca" href="app.html"><img src="img/logo.png" alt="Brasão dos Bombeiros Voluntários de Pomerode"><div><h1>Gestão da escala</h1><small>Bombeiros Voluntários de Pomerode</small></div></a>
+    <nav class="quem" aria-label="Navegação"><a class="btn sec" href="app.html">Voltar à escala</a><button class="btn sec" id="sair">Sair</button></nav>
+  </header>
+
+  <main class="gestao" id="conteudo">
+    <div class="abas" role="tablist" aria-label="Seções da gestão">
+      <button role="tab" id="aba-pedidos" aria-selected="true" aria-controls="sec-pedidos">Pedidos de exclusão <span class="badge" id="badge" hidden></span></button>
+      <button role="tab" id="aba-usuarios" aria-selected="false" aria-controls="sec-usuarios">Usuários</button>
+      <button role="tab" id="aba-planilhas" aria-selected="false" aria-controls="sec-planilhas">Planilhas</button>
+    </div>
+
+    <section id="sec-pedidos" role="tabpanel" aria-labelledby="aba-pedidos"></section>
+
+    <section id="sec-usuarios" role="tabpanel" aria-labelledby="aba-usuarios" hidden>
+      <div class="tabela-rolagem">
+        <table>
+          <thead><tr><th>Nome</th><th>Usuário</th><th>E-mail</th><th>Telefone</th><th>CNH</th><th>Perfil</th><th>Redefinir senha</th></tr></thead>
+          <tbody id="corpo-usuarios"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="sec-planilhas" role="tabpanel" aria-labelledby="aba-planilhas" hidden>
+      <div class="cartao exportar">
+        <h2 style="font-size:1.15rem">Baixar planilhas (Excel)</h2>
+        <div class="linha">
+          <label for="mes-exp">Mês da escala <input type="month" id="mes-exp"></label>
+          <button class="btn" id="exp-escala" type="button">Baixar escala do mês</button>
+        </div>
+        <p class="dica">Uma linha por dia, com os nomes de quem está marcado em cada turno e a quantidade.</p>
+        <div class="linha"><button class="btn sec" id="exp-usuarios" type="button">Baixar lista de usuários</button></div>
+        <p class="dica">Nome, usuário, e-mail, telefone, CNH e perfil. A senha nunca é exportada.</p>
+        <p class="msg" id="exp-msg" role="status"></p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const NOME_TURNO = { MANHA: 'Manhã (07h às 13h)', TARDE: 'Tarde (13h às 19h)', NOITE: 'Noite (19h às 07h)' };
+    const PERFIL = { admin: 'Administrador', chefe: 'Chefe de equipe', bombeiro: 'Bombeiro' };
+
+    function el(tag, props = {}, ...filhos) {
+      const e = Object.assign(document.createElement(tag), props);
+      filhos.forEach((f) => e.append(f));
+      return e;
+    }
+    function checarSessao(r) {
+      if (r.status === 401) { location.href = 'index.html'; throw new Error('Sessão expirada'); }
+      if (r.status === 403) { location.href = 'app.html'; throw new Error('Sem permissão'); }
+    }
+    async function api(url, opts) {
+      const r = await fetch(url, opts); checarSessao(r);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erro || 'Erro inesperado.');
+      return d;
+    }
+    const post = (corpo) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+    const br = (d) => d.split('-').reverse().join('/');
+    const fmtTel = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : d);
+
+    const ABAS = ['pedidos', 'usuarios', 'planilhas'];
+    function aba(nome) {
+      ABAS.forEach((a) => {
+        $(`#sec-${a}`).hidden = a !== nome;
+        $(`#aba-${a}`).setAttribute('aria-selected', a === nome);
+      });
+    }
+    ABAS.forEach((a) => { $(`#aba-${a}`).onclick = () => aba(a); });
+    $('#sair').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = 'index.html'; };
+
+    async function carregarPedidos() {
+      const lista = await api('/api/pedidos');
+      const sec = $('#sec-pedidos'); sec.replaceChildren();
+      $('#badge').hidden = !lista.length; $('#badge').textContent = lista.length;
+      if (!lista.length) { sec.append(el('p', { className: 'vazia', textContent: 'Nenhum pedido aguardando decisão.' })); return; }
+      const wrap = el('div', { style: 'display:grid;gap:.75rem' });
+      lista.forEach((p) => {
+        const msg = el('small', { className: 'msg' });
+        const decidir = async (aprovar) => {
+          try { await api(`/api/pedidos/${p.id}/decidir`, post({ aprovar })); await carregarPedidos(); }
+          catch (e) { msg.textContent = e.message; }
+        };
+        wrap.append(el('div', { className: 'pedido' },
+          el('div', {}, el('b', { textContent: p.nome_completo }),
+            el('small', { textContent: `Quer sair de ${br(p.data)}, ${NOME_TURNO[p.turno]}` }), msg),
+          el('div', { className: 'acoes' },
+            el('button', { className: 'btn', textContent: 'Aprovar exclusão', onclick: () => decidir(true) }),
+            el('button', { className: 'btn sec', textContent: 'Recusar', onclick: () => decidir(false) }))));
+      });
+      sec.append(wrap);
+    }
+
+    async function carregarUsuarios() {
+      const lista = await api('/api/usuarios');
+      const corpo = $('#corpo-usuarios'); corpo.replaceChildren();
+      lista.forEach((u) => {
+        const campo = el('input', { type: 'password', placeholder: 'Nova senha', autocomplete: 'new-password', minLength: 6 });
+        campo.setAttribute('aria-label', `Nova senha para ${u.nome_completo}`);
+        const msg = el('span', { className: 'msg', role: 'status' });
+        const btn = el('button', { className: 'btn sec', textContent: 'Redefinir', type: 'button' });
+        btn.onclick = async () => {
+          msg.className = 'msg'; msg.textContent = '';
+          try {
+            await api(`/api/usuarios/${u.id}/senha`, post({ nova_senha: campo.value }));
+            campo.value = ''; msg.className = 'msg ok'; msg.textContent = 'Senha alterada.';
+          } catch (e) { msg.textContent = e.message; }
+        };
+        corpo.append(el('tr', {},
+          el('td', { textContent: u.nome_completo }), el('td', { textContent: u.usuario }),
+          el('td', { textContent: u.email }), el('td', { textContent: fmtTel(u.telefone) }),
+          el('td', { textContent: u.cnh || 'Nenhuma' }), el('td', { textContent: PERFIL[u.perfil] }),
+          el('td', {}, el('div', { className: 'linha-senha' }, campo, btn, msg))));
+      });
+    }
+
+    // ---------- planilhas ----------
+    async function baixar(url, arquivo) {
+      const msg = $('#exp-msg'); msg.className = 'msg'; msg.textContent = '';
+      try {
+        const r = await fetch(url); checarSessao(r);
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).erro || 'Não foi possível gerar a planilha.');
+        const a = el('a', { href: URL.createObjectURL(await r.blob()), download: arquivo });
+        document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+        msg.className = 'msg ok'; msg.textContent = `Planilha ${arquivo} baixada.`;
+      } catch (e) { msg.textContent = e.message; }
+    }
+    $('#exp-escala').onclick = () => {
+      const mes = $('#mes-exp').value;
+      if (!mes) { $('#exp-msg').className = 'msg'; $('#exp-msg').textContent = 'Escolha o mês.'; return; }
+      baixar(`/api/exportar/escala?mes=${mes}`, `escala-${mes}.xlsx`);
+    };
+    $('#exp-usuarios').onclick = () => baixar('/api/exportar/usuarios', 'usuarios.xlsx');
+
+    (async () => {
+      const me = await api('/api/me');
+      const h = new Date();
+      $('#mes-exp').min = me.mes_inicial;
+      $('#mes-exp').value = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}`;
+      carregarPedidos(); carregarUsuarios();
+    })();
+  </script>
+</body>
+</html>
