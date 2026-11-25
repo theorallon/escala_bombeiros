@@ -31,6 +31,38 @@
           <tbody id="corpo-usuarios"></tbody>
         </table>
       </div>
+      <div class="cartao novo-usuario">
+        <h2>Criar usuário</h2>
+        <form id="form-novo-usuario">
+          <div class="grade-campos">
+            <label>Nome completo <input type="text" name="nome_completo" autocomplete="name" required></label>
+            <label>Usuário <input type="text" name="usuario" autocomplete="username" minlength="3" maxlength="30" required></label>
+            <label>E-mail <input type="email" name="email" autocomplete="email" required></label>
+            <label>Telefone <input type="tel" name="telefone" autocomplete="tel" inputmode="tel" maxlength="15" placeholder="(47) 99999-9999" required></label>
+            <label>Senha <input type="password" name="senha" autocomplete="new-password" minlength="6" required></label>
+            <label>Perfil
+              <select name="perfil" id="novo-perfil">
+                <option value="bombeiro">Bombeiro</option>
+                <option value="chefe">Chefe de equipe</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </label>
+          </div>
+          <fieldset>
+            <legend>Carteira de motorista <span class="dica">(opcional)</span></legend>
+            <div class="opcoes">
+              <label><input type="checkbox" name="cnh" value="A"><span>A</span></label>
+              <label><input type="checkbox" name="cnh" value="B"><span>B</span></label>
+              <label><input type="checkbox" name="cnh" value="C"><span>C</span></label>
+              <label><input type="checkbox" name="cnh" value="D"><span>D</span></label>
+              <label><input type="checkbox" name="cnh" value="E"><span>E</span></label>
+            </div>
+          </fieldset>
+          <label class="aceite"><input type="checkbox" name="mostrar_telefone"> <span>Mostrar o telefone aos colegas no painel do dia.</span></label>
+          <p class="msg" id="novo-usuario-msg" role="status"></p>
+          <button class="btn" type="submit">Criar usuário</button>
+        </form>
+      </div>
     </section>
 
     <section id="sec-planilhas" role="tabpanel" aria-labelledby="aba-planilhas" hidden>
@@ -151,6 +183,49 @@
       $('#mes-exp').min = me.mes_inicial;
       $('#mes-exp').value = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}`;
       carregarPedidos(); carregarUsuarios();
+    })();
+
+    let perfilAtual = 'chefe';
+
+    const telefoneNovo = $('#form-novo-usuario').elements.telefone;
+    telefoneNovo.addEventListener('input', (e) => {
+      const d = e.target.value.replace(/\D/g, '').slice(0, 11);
+      e.target.value = d.length <= 2 ? d : d.length <= 6
+        ? `(${d.slice(0, 2)}) ${d.slice(2)}`
+        : `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+    });
+
+    $('#form-novo-usuario').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = $('#novo-usuario-msg');
+      msg.className = 'msg'; msg.textContent = '';
+      const dados = new FormData(e.currentTarget);
+      const corpo = {
+        nome_completo: dados.get('nome_completo'),
+        usuario: dados.get('usuario'),
+        email: dados.get('email'),
+        telefone: dados.get('telefone'),
+        senha: dados.get('senha'),
+        perfil: dados.get('perfil'),
+        cnh: dados.getAll('cnh'),
+        mostrar_telefone: dados.has('mostrar_telefone')
+      };
+      try {
+        await api('/api/usuarios', post(corpo));
+        msg.className = 'msg ok';
+        msg.textContent = 'Usuário criado com sucesso.';
+        e.currentTarget.reset();
+        await carregarUsuarios();
+      } catch (erro) { msg.textContent = erro.message; }
+    });
+
+    (async () => {
+      const me = await api('/api/me');
+      let perfilAtual = me.perfil;
+      if (perfilAtual !== 'admin') {
+        const perfilSelect = $('#novo-perfil');
+        [...perfilSelect.options].filter((opcao) => opcao.value !== 'bombeiro').forEach((opcao) => opcao.remove());
+      }
     })();
   </script>
 </body>

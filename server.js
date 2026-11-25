@@ -287,6 +287,40 @@ app.post('/api/usuarios/:id/senha', exigirLogin, exigirGestor, rota(async (req, 
   res.json({ ok: true });
 }));
 
+app.post('/api/usuarios', exigirLogin, exigirGestor, rota(async (req, res) => {
+  const { nome_completo, usuario, email, telefone, senha, cnh = [], mostrar_telefone = false, perfil = 'bombeiro' } = req.body;
+
+  if (![nome_completo, usuario, email, telefone, senha].every((v) => typeof v === 'string' && v.trim()))
+    return res.status(400).json({ erro: 'Preencha todos os campos.' });
+  if (!/^[a-z0-9._-]{3,30}$/i.test(usuario))
+    return res.status(400).json({ erro: 'Usuário: 3 a 30 caracteres (letras, números, ponto, hífen ou _).' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: 'E-mail inválido.' });
+  const tel = soDigitos(telefone);
+  if (tel.length < 10 || tel.length > 11) return res.status(400).json({ erro: 'Telefone: informe o DDD e o número (10 ou 11 dígitos).' });
+  if (typeof senha !== 'string' || senha.length < 6) return res.status(400).json({ erro: 'A senha precisa ter ao menos 6 caracteres.' });
+
+  if (!['bombeiro', 'chefe', 'admin'].includes(perfil))
+    return res.status(400).json({ erro: 'Perfil inválido.' });
+  if (req.user.perfil !== 'admin' && perfil !== 'bombeiro')
+    return res.status(403).json({ erro: 'Apenas administradores podem criar chefes ou administradores.' });
+
+  const cnhSet = CNH_VALIDAS.filter((c) => Array.isArray(cnh) && cnh.includes(c)).join(',');
+  const hash = await bcrypt.hash(senha, 10);
+
+  try {
+    await db.query(
+      `INSERT INTO usuarios (nome_completo, usuario, email, telefone, mostrar_telefone, senha_hash, cnh, perfil)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [nome_completo.trim(), usuario.trim().toLowerCase(), email.trim().toLowerCase(), tel,
+        mostrar_telefone ? 1 : 0, hash, cnhSet, perfil]
+    );
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ erro: 'Usuário ou e-mail já cadastrado.' });
+    throw e;
+  }
+}));
+
 // ---------- exportação para planilha (chefe e admin) ----------
 function enviarXlsx(res, nome, buf) {
   res.set({
